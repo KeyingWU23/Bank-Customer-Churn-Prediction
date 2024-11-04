@@ -1,0 +1,324 @@
+---
+title: "Bank Customer Churn Prediction"
+author: "Keying Wu"
+date: "2024-10"
+header-includes:
+  - \usepackage{ctex}
+output:
+  pdf_document:
+    includes:
+      keep_tex: yes
+    latex_engine: xelatex
+fontsize: 12pt
+linkcolor: red
+urlcolor : blue
+mainfont: Arial
+df_print: kable 
+highlight: tango
+theme: sky
+output_dir: "C:/Users/47804/Desktop/bank"
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+\newpage
+\renewcommand{\contentsname}{Table of Contents:}
+\tableofcontents
+\newpage
+
+# 1. Ask to Clarify the Business Task  
+
+## 1.1 Business Task  
+
+>  
+
+The goal is to analyze the bank customer churn data to determine which factors influence why customers are leaving the service. By understanding these factors, we aim to implement targeted strategies to reduce churn and improve customer retention.  
+
+## 1.2 Key Objecives  
+
+>  
+
+a. Identify the most relevant factors that cause customers to churn or stay with the bank.  
+b. Predict which customers are more or less likely to churn.  
+
+\newpage 
+
+# 2. Prepare the Data for Analysis
+
+>  
+
+We will be using the bank-customer-churn dataset for our analysis. This dataset contains the customer data for an anonymous multinational bank. The dataset is public and free to use.  
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+# Import the libraries and the dataset 
+
+library(plyr)
+library(corrplot)
+library(ggplot2)
+library(gridExtra)
+library(ggthemes)
+library(caret)
+library(party)
+
+destop_path = file.path(Sys.getenv("USERPROFILE"),"Desktop")
+file_path = 'bank/Customer-Churn-Records.csv'
+csv_path = paste(destop_path,file_path,sep = "/")
+churn <- read.csv(csv_path)
+```
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+# Split the data
+
+churn1 <- churn[, 1:6]    
+churn2 <- churn[, 7:12]   
+churn3 <- churn[, 13:18]  
+
+# Preview the data
+
+knitr::kable(head(churn1))
+knitr::kable(head(churn2))
+knitr::kable(head(churn3))
+
+colnames(churn)
+str(churn)
+```
+
+\newpage 
+
+# 3. Process/Clean the Data  
+
+## 3.1 Check for missing values  
+
+>
+
+```{r,warning=FALSE, message=FALSE}
+sapply(churn, function(x) sum(is.na(x)))
+```
+
+## 3.2 Organize the tenure into groups  
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+# Check for the minimum and maximum tenure
+
+print(max(churn$Tenure))
+print(min(churn$Tenure))
+```
+
+>
+
+```{r,warning=FALSE, message=FALSE}
+# Organize tenure into groups: 0-1 year, 2-3 years, 4-5 years, and >5 years
+
+group_tenure <- function(Tenure)
+{
+    if (Tenure >= 0 & Tenure <= 1){
+        return('0-1 Years')
+    }else if(Tenure >= 2 & Tenure <= 3){
+        return('2-3 Years')
+    }else if (Tenure >= 4 & Tenure <= 5){
+        return('4-5 Years')
+    }else if (Tenure > 5 ){
+        return('> 5 Years')
+ }
+}
+
+churn$Tenure.Group <- sapply(churn$Tenure,group_tenure)
+churn$Tenure.Group <- as.factor(churn$Tenure.Group)
+```
+
+## 3.3 Change 0 and 1 inputs to "No" and "Yes" 
+
+```{r,warning=FALSE, message=FALSE}
+churn$HasCrCard <- as.factor(mapvalues(churn$HasCrCard,
+                                      from=c("0","1"),
+                                      to=c("No", "Yes")))
+
+churn$IsActiveMember <- as.factor(mapvalues(churn$IsActiveMember,
+                                      from=c("0","1"),
+                                      to=c("No", "Yes")))
+
+churn$Exited <- as.factor(mapvalues(churn$Exited,
+                                      from=c("0","1"),
+                                      to=c("No", "Yes")))
+
+churn$Complain <- as.factor(mapvalues(churn$Complain,
+                                      from=c("0","1"),
+                                      to=c("No", "Yes")))
+```
+
+## 3.4 Remove unnecessary columns  
+
+```{r,warning=FALSE, message=FALSE}
+churn$RowNumber <- NULL
+churn$CustomerId <- NULL
+churn$Surname <- NULL
+churn$Tenure <- NULL
+churn$tenure_group <- NULL
+```
+
+\newpage  
+
+# 4. Analyze the Data  
+
+## 4.1 Perform exploratory data analysis  
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+numeric.var <- sapply(churn, is.numeric)
+corr.matrix <- cor(churn[,numeric.var])
+corrplot(corr.matrix, main="\nCorrelation Plot for Numerical Variables", 
+         method="number")
+```
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+# Number of Products and Balance are correlated 
+# so we'll remove the Number of Products
+
+churn$NumOfProducts <- NULL
+```
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+# Bar Plots
+
+p1 <- ggplot(churn, aes(x=Gender)) + ggtitle("Gender") + xlab("Gender") +
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+p2 <- ggplot(churn, aes(x=Age)) + ggtitle("Age") + xlab("Age") + 
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+p3 <- ggplot(churn, aes(x=HasCrCard)) + 
+  ggtitle("Has a Credit Card") + xlab("Has a Credit Card") + 
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+p4 <- ggplot(churn, aes(x=IsActiveMember)) + 
+  ggtitle("Is an Active Member") + xlab("Is an Active Member") +
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+grid.arrange(p1, p2, p3, p4, ncol=2)
+```
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+p1 <- ggplot(churn, aes(x=Tenure.Group)) + 
+  ggtitle("Tenure Group") + xlab("Tenure Group") +
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+p2 <- ggplot(churn, aes(x=Satisfaction.Score)) + 
+  ggtitle("Satisfaction Score") + xlab("Satisfaction Score") + 
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+p3 <- ggplot(churn, aes(x=Exited)) + ggtitle("Exited") + xlab("Exited") + 
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+p4 <- ggplot(churn, aes(x=Complain)) + ggtitle("Complain") + xlab("Complain") +
+  geom_bar(aes(y = 100*after_stat(count)/sum(after_stat(count))), 
+           width = 0.5) + ylab("Percentage") + coord_flip() + theme_minimal()
+
+grid.arrange(p1, p2, p3, p4, ncol=2)
+```
+
+## 4.2 Logistic Regression  
+
+>
+
+```{r,warning=FALSE, message=FALSE}
+# Split the data into training and testing subsets
+
+intrain<- createDataPartition(churn$Exited,p=0.7,list=FALSE)
+set.seed(2024)
+training<- churn[intrain,]
+testing<- churn[-intrain,]
+
+dim(training); dim(testing)
+```
+
+>  
+
+```{r,warning=FALSE, message=FALSE}
+# Fit the data to the logistic regression model
+
+LogModel <- glm(Exited ~ .,family=binomial(link="logit"),data=training)
+print(summary(LogModel))
+```
+
+> 
+
+```{r,warning=FALSE, message=FALSE}
+# According to the results, Complaints, Age,
+# and Points Earned are the most significant factors
+
+# Next, we'll check the accuracy of the model  
+
+testing$Exited <- as.character(testing$Exited)
+testing$Exited[testing$Exited=="No"] <- "0"
+testing$Exited[testing$Exited=="Yes"] <- "1"
+fitted.results <- predict(LogModel,newdata=testing,type='response')
+fitted.results <- ifelse(fitted.results > 0.5,1,0)
+misClasificError <- mean(fitted.results != testing$Exited)
+print(paste('Logistic Regression Accuracy',1-misClasificError))
+
+print("Confusion Matrix for Logistic Regression"); 
+table(testing$Exited, fitted.results > 0.5)
+```
+
+>  
+
+## 4.3 Decision Tree  
+
+> 
+
+```{r,warning=FALSE, message=FALSE}
+# Create a decision tree with the most relevant factors 
+# related to customer churn
+
+tree <- ctree(Exited~Complain+Age+Point.Earned, training)
+plot(tree)
+```
+
+\newpage 
+
+# 5. Share the Results of the Analysis  
+
+## 5.1 Key Takeaways  
+
+>
+
+a. Whether or not a customer submitted a complaint was the most significant factor in customer churn.  
+
+
+b. Other factors related to customer churn included the age of the customer and the number of points the customer had earned.  
+
+c. Interestingly, there does not appear to be a relationship between the customer satisfaction rating nor the length of tenure and customer churn.  
+
+d. If a customer submits a complaint, is over 36 years old, and has earned few points, they are more likely to churn. On the other hand, customers who have never issued a complaint are far less likely to churn.  
+
+## 5.2 Actionable Steps  
+
+> 
+
+a. Because there is little correlation between the customer satisfaction rating and customer churn, it would be beneficial to issue more extensive customer surveys to assess their needs, concerns, and general satisfaction.  
+
+b. Customers are far more likely to churn if they had previously submitted a complaint. That may imply that their complaints were not adequately resolved. To retain such customers, we should assess the most common complaints and make sure the customers are satisfied with the resolutions.  
+
